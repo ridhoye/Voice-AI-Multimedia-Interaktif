@@ -69,6 +69,10 @@ export default function QuizArenaPage({ params }: QuizPageProps) {
   const [aiFeedback, setAiFeedback] = useState<string | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
 
+  // Dukungan voice & error mic (dipisah: API tidak didukung != izin ditolak)
+  const [isVoiceSupported, setIsVoiceSupported] = useState(true);
+  const [micError, setMicError] = useState<string | null>(null);
+
   // Score & Leaderboard
   const [totalScore, setTotalScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
@@ -519,6 +523,8 @@ export default function QuizArenaPage({ params }: QuizPageProps) {
       console.warn(
         "Browser ini tidak mendukung Web Speech API. Gunakan Chrome/Edge.",
       );
+      // Lewat microtask agar tidak setState sinkron di body effect (aturan react-hooks/set-state-in-effect)
+      queueMicrotask(() => setIsVoiceSupported(false));
       return;
     }
 
@@ -529,11 +535,28 @@ export default function QuizArenaPage({ params }: QuizPageProps) {
 
     recognition.onstart = () => {
       console.log("🎤 [MIC ON] Mendengarkan suara pemain...");
+      setMicError(null);
     };
 
     recognition.onerror = (event: any) => {
       console.warn("Mic status:", event.error);
       if (event.error === "no-speech") return;
+
+      // Bedakan antara API tidak didukung vs izin mic ditolak vs mic tidak ada
+      if (
+        event.error === "not-allowed" ||
+        event.error === "service-not-allowed"
+      ) {
+        isMicEnabledRef.current = false;
+        setIsMicEnabled(false);
+        setMicError(
+          "Akses mikrofon ditolak. Izinkan mikrofon di browser lalu tekan tombol mic lagi, atau ketuk opsi jawaban untuk menjawab.",
+        );
+      } else if (event.error === "audio-capture") {
+        setMicError(
+          "Mikrofon tidak terdeteksi di perangkat ini. Kamu tetap bisa menjawab dengan mengetuk opsi jawaban.",
+        );
+      }
     };
 
     recognition.onresult = (event: any) => {
@@ -751,11 +774,11 @@ export default function QuizArenaPage({ params }: QuizPageProps) {
 
   return (
     // Background & Paper Texture
-    <div className="relative min-h-screen w-full bg-cover bg-center bg-no-repeat text-zinc-900 flex flex-col justify-between p-4 sm:p-8 [@media(max-height:650px)]:p-3 select-none overflow-x-hidden lg:h-dvh lg:min-h-0 lg:overflow-hidden"
+    <div className="relative min-h-screen w-full bg-cover bg-center bg-no-repeat text-zinc-900 flex flex-col justify-between p-4 sm:p-8 [@media(max-height:650px)]:p-3 select-none lg:h-dvh lg:min-h-0 lg:overflow-hidden"
       style={{ backgroundImage: "url('/quiz-bg.png')" }}
     >
       {/* PAPER */}
-      <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
+      <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
         <Image
           src="/paper.png"
           alt=""
@@ -989,6 +1012,31 @@ export default function QuizArenaPage({ params }: QuizPageProps) {
 
       {/* 5. ARENA PERTANYAAN (PILIHAN GANDA) */}
       <main className="@container relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center gap-5 py-3 xl:gap-7 xl:py-10 [@media(max-height:650px)]:gap-2 [@media(max-height:650px)]:py-1 lg:min-h-0 lg:justify-start lg:pt-[clamp(0.75rem,4vh,2rem)] lg:pb-3 xl:pt-[clamp(0.75rem,4vh,2rem)] xl:pb-3">
+        {/* Peringatan jika browser tidak mendukung pengenalan suara (mis. iPhone Safari) */}
+        {!isVoiceSupported && (
+          <div
+            role="alert"
+            className="flex w-full max-w-[540px] shrink-0 items-start gap-2 rounded-xl border border-amber-300/80 bg-[#fff8e2]/95 px-3.5 py-2.5 text-[11px] font-semibold leading-snug text-amber-950 shadow-[0_3px_10px_rgba(86,60,36,0.12)] backdrop-blur-sm sm:text-xs xl:max-w-[620px]"
+          >
+            <span className="shrink-0">🎙️</span>
+            <span className="min-w-0">
+              Fitur pengenalan suara tidak didukung oleh browser ini. Silakan
+              pilih jawaban dengan mengetuk opsi yang tersedia.
+            </span>
+          </div>
+        )}
+
+        {/* Peringatan jika mic ditolak / tidak terdeteksi (API-nya didukung) */}
+        {isVoiceSupported && micError && (
+          <div
+            role="alert"
+            className="flex w-full max-w-[540px] shrink-0 items-start gap-2 rounded-xl border border-rose-300/80 bg-[#ffeef0]/95 px-3.5 py-2.5 text-[11px] font-semibold leading-snug text-rose-950 shadow-[0_3px_10px_rgba(86,60,36,0.12)] backdrop-blur-sm sm:text-xs xl:max-w-[620px]"
+          >
+            <span className="shrink-0">⚠️</span>
+            <span className="min-w-0">{micError}</span>
+          </div>
+        )}
+
         <div className="relative w-full max-w-[540px] shrink-0 xl:max-w-[620px]">
           <motion.div
             key={currentQuestion?.id}
@@ -1008,7 +1056,8 @@ export default function QuizArenaPage({ params }: QuizPageProps) {
           </div>
 
           {/* AI Voice State Indicator */}
-          <div className="mt-2 mb-3 flex items-center gap-2 [@media(max-height:650px)]:mt-1 [@media(max-height:650px)]:mb-2">
+          {/* max-lg:w-full: baris melebar khusus mobile agar timer ringkas muat di kanan */}
+          <div className="mt-2 mb-3 flex items-center gap-2 max-lg:w-full [@media(max-height:650px)]:mt-1 [@media(max-height:650px)]:mb-2">
             <span
               className={`w-2 h-2 rounded-full ${isAiSpeaking
                 ? "bg-indigo-500 animate-ping"
@@ -1017,12 +1066,22 @@ export default function QuizArenaPage({ params }: QuizPageProps) {
                   : "bg-emerald-500"
                 }`}
             />
-            <span className="text-[11px] font-bold tracking-wider uppercase text-zinc-400 font-monaSans">
+            <span className="min-w-0 text-[11px] font-bold tracking-wider uppercase text-zinc-400 font-monaSans">
               {isAiSpeaking
                 ? "AI Sedang Membaca Soal..."
                 : isEvaluating
                   ? "Juri AI Sedang Menilai Jawabanmu..."
                   : "Giliranmu Menjawab (Bicara Sekarang)"}
+            </span>
+            {/* Timer ringkas khusus mobile (lg:hidden) — sticky note timer besar tetap tampil di bawah kartu (mobile) & samping kartu (desktop) */}
+            <span
+              className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-[11px] font-black tabular-nums lg:hidden ${
+                timeLeft <= 5
+                  ? "animate-pulse border-red-300 bg-red-50 text-red-600"
+                  : "border-amber-950/15 bg-[#fffdf8]/90 text-amber-950"
+              }`}
+            >
+              ⏱ 00:{String(timeLeft).padStart(2, "0")}
             </span>
           </div>
 
@@ -1213,11 +1272,11 @@ export default function QuizArenaPage({ params }: QuizPageProps) {
       </main>
 
       {/* 6. FOOTER VOICE CONTROLS */}
-      <footer className="relative z-10 mx-auto flex w-full max-w-md flex-col items-center gap-2 pb-1 [@media(max-height:650px)]:gap-1">
+      <footer className="sticky bottom-0 z-10 mx-auto flex w-full max-w-md flex-col items-center gap-2 pb-[max(4px,env(safe-area-inset-bottom))] [@media(max-height:650px)]:gap-1 lg:static">
         <button
           type="button"
           onClick={toggleMic}
-          disabled={!gameStarted}
+          disabled={!gameStarted || !isVoiceSupported}
           className={`relative flex h-14 w-14 items-center justify-center rounded-full border-[4px] border-[#fff8e9] transition-all cursor-pointer active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 [@media(max-height:650px)]:h-11 [@media(max-height:650px)]:w-11 ${isMicEnabled
             ? "bg-emerald-700 text-white shadow-[0_5px_0_#854d0e,0_10px_20px_rgba(76,54,27,0.24)] hover:-translate-y-0.5 hover:bg-emerald-600"
             : "bg-rose-500 text-white shadow-[0_5px_0_#9f3542,0_10px_20px_rgba(76,54,27,0.2)] hover:-translate-y-0.5 hover:bg-rose-600"
@@ -1255,6 +1314,8 @@ export default function QuizArenaPage({ params }: QuizPageProps) {
               </span>
             ) : isAiSpeaking ? (
               "🔊 Dengerin dulu, soalnya lagi dibacain!"
+            ) : !isVoiceSupported ? (
+              "🔇 Suara tidak didukung browser ini — ketuk opsi jawaban"
             ) : isMicEnabled ? (
               '🎤 Sebut pilihan A, B, C, D atau bilang "Lanjut"'
             ) : (

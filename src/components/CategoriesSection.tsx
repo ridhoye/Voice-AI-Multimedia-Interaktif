@@ -102,7 +102,7 @@ export default function CategorySection() {
                   setActiveCard(item.id);
                   setSelectedModalCard(item);
                 }}
-                className={`group relative cursor-pointer transition-all duration-300 w-[305px] h-[275px] rounded-[16px] bg-white border border-white/90 p-1 flex flex-col justify-between shadow-[0_14px_30px_rgba(0,0,0,0.2)] ${
+                className={`group relative cursor-pointer transition-all duration-300 w-full max-w-[305px] h-[275px] rounded-[16px] bg-white border border-white/90 p-1 flex flex-col justify-between shadow-[0_14px_30px_rgba(0,0,0,0.2)] ${
                   item.tilt
                 } ${
                   isLast ? "md:col-span-2 md:justify-self-center -translate-y-2" : ""
